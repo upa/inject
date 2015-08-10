@@ -2,6 +2,7 @@
 #    inject function controller
 #
 
+import json
 import logging
 import ConfigParser
 
@@ -15,6 +16,12 @@ from ryu.controller import dpset
 from ryu.ofproto import ofproto_v1_3
 from ryu.ofproto import ether
 from ryu.ofproto import inet
+
+
+from webob.response import Response
+from ryu.app.wsgi import (
+    WSGIApplication, ControllerBase,
+)
 
 
 """
@@ -44,36 +51,10 @@ class OFSwitch () :
         self.portb = portb
         self.ports = []  # OpenFlow Port Numbers
         self.ifuncs = [] # InjectFunction class
+        self.datapath = False
         self.present = False
         return
 
-
-    def attach_function (self, ifunc) :
-
-        if ifunc in self.ifuncs :
-            logging.error ("function %s is already attached." % ifunc.name)
-            return False
-
-        ifunc.attached = True
-        self.ifuncs.append (ifunc)
-
-        # XXX: add new flow entry here ?
-
-        return True
-
-
-    def detach_function (self, ifunc) :
-        
-        if not ifunc in self.ifuncs :
-            logging.error ("function %s is not attached." % ifunc.name)
-            return False
-
-        ifunc.attached = False
-        self.ifuncs.remove (ifunc)
-
-        # XXX: delete new flow entry here ?
-
-        return
 
     def add_port (self, port) :
         if port in self.ports : 
@@ -109,10 +90,16 @@ class InjectFunction () :
 
 class Inject (app_manager.RyuApp) :
     OFP_VERSIONS = [ofproto_v1_3.OFP_VERSION]
-    _CONTEXTS = { 'dpset' : dpset.DPSet, }
+    _CONTEXTS = { 
+        'dpset' : dpset.DPSet, 
+        'wsgi' : WSGIApplication,
+        }
 
     def __init__ (self, *args, **kwargs) :
         super (Inject, self).__init__ (*args, **kwargs)
+
+        self.wsgi = kwargs['wsgi']
+
 
         self.ofs = None
         self.ifuncs = []
@@ -153,13 +140,43 @@ class Inject (app_manager.RyuApp) :
 
             ifunc = InjectFunction (section, porta, portb, iport)
             self.ifuncs.append (ifunc)
-            
-            if attached :
-                self.ofs.attach_function (ifunc)
+            if attached : ifunc.attached = True
             
         logging.info ("load config file is done. waiting switch join.")
 
+
+        # load Restful API
+        mapper = self.wsgi.mapper
+        self.wsgi.registory['RestApi'] = { 'inject' : self }
+
+        mapper.connect ('attach_ifunc', "/attach/{ifunc_name}",
+                        controller = RestApi,
+                        action = 'attach_ifunc',
+                        conditions = dict (method = ['PUT']))
+
+        mapper.connect ('detach_ifunc', "/detach/{ifunc_name}",
+                        controller = RestApi,
+                        action = 'detach_ifunc',
+                        conditions = dict (method = ['PUT']))
+
+        mapper.connect ('install_all_flows', "/installall",
+                        controller = RestApi,
+                        action = 'install_all_flows',
+                        conditions = dict (method = ['PUT']))
+        
+        mapper.connect ('remove_all_flows', "/removeall",
+                        controller = RestApi,
+                        action = 'remove_all_flows',
+                        conditions = dict (method = ['PUT']))
+
         return
+
+
+    def find_ifunc (self, ifunc_name) :
+        for ifunc in self.ifuncs :
+            if ifunc.name == ifunc_name :
+                return ifunc
+        return None
 
 
     def install_default_flows (self, datapath) :
@@ -263,8 +280,49 @@ class Inject (app_manager.RyuApp) :
         return
 
 
-    def install_flows (self, ev) :
-        datapath = ev.msg.datapath
+    def remove_inject_flows (self, datapath, ifunc) :
+        
+        # remove inject flows
+        ofproto = datapath.ofproto
+        parser = datapath.ofproto_parser
+
+        # install ofs -> ifunc flows
+        def gen_match (ip_proto, ifunc_port, portdirect) :
+            
+            if ip_proto == inet.IPPROTO_TCP :
+                if portdirect == "src" :
+                    m = parser.OFPMatch (eth_type = ether.ETH_TYPE_IP,
+                                         ip_proto = ip_proto,
+                                         tcp_src = ifunc_port)
+                elif portdirect == "dst" :
+                    m = parser.OFPMatch (eth_type = ether.ETH_TYPE_IP,
+                                         ip_proto = ip_proto,
+                                         tcp_dst = ifunc_port)
+            elif ip_proto == inet.IPPROTO_UDP :
+                if portdirect == "src" :
+                    m = parser.OFPMatch (eth_type = ether.ETH_TYPE_IP,
+                                         ip_proto = ip_proto,
+                                         udp_src = ifunc_port)
+                elif portdirect == "dst" :
+                    m = parser.OFPMatch (eth_type = ether.ETH_TYPE_IP,
+                                         ip_proto = ip_proto,
+                                         udp_dst = ifunc_port)
+            return m
+
+        match_tcp_src = gen_match (inet.IPPROTO_TCP, ifunc.iport, "src")
+        match_tcp_dst = gen_match (inet.IPPROTO_TCP, ifunc.iport, "dst")
+        match_udp_src = gen_match (inet.IPPROTO_UDP, ifunc.iport, "src")
+        match_udp_dst = gen_match (inet.IPPROTO_UDP, ifunc.iport, "dst")
+
+        self.send_flowdel (datapath, match_tcp_src)
+        self.send_flowdel (datapath, match_tcp_dst)
+        self.send_flowdel (datapath, match_udp_src)
+        self.send_flowdel (datapath, match_udp_dst)
+
+        return
+
+
+    def install_flows (self, datapath) :
 
         logging.info ("install default port-a.ofs <-> port-b.ofs flows.")
         self.install_default_flows (datapath)
@@ -276,20 +334,16 @@ class Inject (app_manager.RyuApp) :
         return
 
 
-    def remove_flows (self, ev) :
+    def remove_flows (self, datapath) :
         logging.info ("remove all flows.")
 
-        datapath = ev.msg.datapath
         ofproto = datapath.ofproto
         parser = datapath.ofproto_parser
 
         # install DEL with * match
+        #match = parser.OFPMatch (in_port = self.ofs.porta)
         match = parser.OFPMatch ()
-        ins = []
-        mod = parser.OFPFlowMod (datapath = datapath, match = match,
-                                 instructions = ins,
-                                 command = ofproto.OFPFC_DELETE)
-        datapath.send_msg (mod)
+        self.send_flowdel (datapath, match)
         return
 
 
@@ -307,7 +361,21 @@ class Inject (app_manager.RyuApp) :
         datapath.send_msg (mod)
         return
 
-    
+
+    def send_flowdel (self, datapath, match) :
+
+        ofproto = datapath.ofproto
+        parser = datapath.ofproto_parser
+
+        mod = parser.OFPFlowMod (datapath = datapath, 
+                                 match = match,
+                                 out_port = ofproto.OFPP_ANY,
+                                 out_group = ofproto.OFPG_ANY,
+                                 command = ofproto.OFPFC_DELETE)
+        datapath.send_msg (mod)
+
+        return
+
 
     @set_ev_cls (ofp_event.EventOFPSwitchFeatures, CONFIG_DISPATCHER)
     def switch_features_handler (self, ev) :
@@ -318,11 +386,12 @@ class Inject (app_manager.RyuApp) :
             return
 
         logging.info ("Switch [%d] is connected." % dpid)
+        self.ofs.datapath = ev.msg.datapath
         self.ofs.present = True
 
         # XXX: remove all enries, and install flow entries.
-        self.remove_flows (ev)
-        self.install_flows (ev)
+        self.remove_flows (ev.msg.datapath)
+        self.install_flows (ev.msg.datapath)
         return
 
     
@@ -342,4 +411,84 @@ class Inject (app_manager.RyuApp) :
 
         for port in ev.dp.ports :
             self.ofs.add_port (port)
+
+
+
+class RestApi (ControllerBase) :
+    
+    def __init__ (self, body, link, data, **config) :
+        super (RestApi, self).__init__ (body, link, data, **config)
+        self.inject = data['inject']
+        return
+
+
+    def attach_ifunc (self, req, ifunc_name, ** _kwargs) :
+
+        logging.info ("attach %s" % ifunc_name)
+
+        ifunc = self.inject.find_ifunc (ifunc_name)
+
+        if not ifunc :
+            jsondict = { "error" : "invalid function %s." % ifunc_name }
+            return Response (content_type = "application/json",
+                             body = json.dumps (jsondict, indent = 4))
+
+        if ifunc.attached :
+            jsondict = { "error" : "function is already attached." }
+            return Response (content_type = "application/json",
+                             body = json.dumps (jsondict, indent = 4))
+
+        self.inject.install_inject_flows (self.inject.ofs.datapath, ifunc)
+        ifunc.attached = True
+
+        jsondict = { "success" : "%s is attached." % ifunc_name }
+        return Response (content_type = "application/json",
+                         body = json.dumps (jsondict, indent = 4))
+
+
+    def detach_ifunc (self, req, ifunc_name, ** _kwargs) :
+
+        logging.info ("attach %s" % ifunc_name)
+
+        ifunc = self.inject.find_ifunc (ifunc_name)
+
+        if not ifunc :
+            jsondict = { "error" : "invalid function %s." % ifunc_name }
+            return Response (content_type = "application/json",
+                             body = json.dumps (jsondict, indent = 4))
+
+        if not ifunc.attached :
+            jsondict = { "error" : "function is already detached." }
+            return Response (content_type = "application/json",
+                             body = json.dumps (jsondict, indent = 4))
+
+        self.inject.remove_inject_flows (self.inject.ofs.datapath, ifunc)
+        ifunc.attached = False
+
+        jsondict = { "success" : "%s is detached." % ifunc_name }
+        return Response (content_type = "application/json",
+                         body = json.dumps (jsondict, indent = 4))
+
+
+    def install_all_flows (self, req, ** _kwargs) :
+
+        logging.info ("install all flows.")
+    
+        self.inject.install_flows (self.inject.ofs.datapath)
+
+        jsondict = { "success" : "flows are installed." }
+        return Response (content_type = "application/json",
+                         body = json.dumps (jsondict, indent = 4))
+
+
+    def remove_all_flows (self, req, ** _kwargs) :
+        
+        logging.info ("remove all flows.")
+
+        self.inject.remove_flows (self.inject.ofs.datapath)
+
+        jsondict = { "success" : "flows are removed." }
+        return Response (content_type = "application/json",
+                         body = json.dumps (jsondict, indent = 4))
+        
 
