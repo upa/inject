@@ -244,7 +244,7 @@ class Inject (app_manager.RyuApp) :
         self.send_flowmod (datapath, PRIO_INJECT_FLOW, match_tcp_src, act)
         self.send_flowmod (datapath, PRIO_INJECT_FLOW, match_tcp_dst, act)
         self.send_flowmod (datapath, PRIO_INJECT_FLOW, match_udp_src, act)
-        self.send_flowmod (datapath, PRIO_INJECT_FLOW, match_udp_src, act)
+        self.send_flowmod (datapath, PRIO_INJECT_FLOW, match_udp_dst, act)
 
         match_tcp_src = gen_match (self.ofs.portb, tcp, ifunc.iport, "src")
         match_tcp_dst = gen_match (self.ofs.portb, tcp, ifunc.iport, "dst")
@@ -254,7 +254,7 @@ class Inject (app_manager.RyuApp) :
         self.send_flowmod (datapath, PRIO_INJECT_FLOW, match_tcp_src, act)
         self.send_flowmod (datapath, PRIO_INJECT_FLOW, match_tcp_dst, act)
         self.send_flowmod (datapath, PRIO_INJECT_FLOW, match_udp_src, act)
-        self.send_flowmod (datapath, PRIO_INJECT_FLOW, match_udp_src, act)
+        self.send_flowmod (datapath, PRIO_INJECT_FLOW, match_udp_dst, act)
 
         # install ifunc -> ofs flows
         match_tcp_src = gen_match (ifunc.porta, tcp, ifunc.iport, "src")
@@ -265,7 +265,7 @@ class Inject (app_manager.RyuApp) :
         self.send_flowmod (datapath, PRIO_INJECT_FLOW, match_tcp_src, act)
         self.send_flowmod (datapath, PRIO_INJECT_FLOW, match_tcp_dst, act)
         self.send_flowmod (datapath, PRIO_INJECT_FLOW, match_udp_src, act)
-        self.send_flowmod (datapath, PRIO_INJECT_FLOW, match_udp_src, act)
+        self.send_flowmod (datapath, PRIO_INJECT_FLOW, match_udp_dst, act)
 
         match_tcp_src = gen_match (ifunc.portb, tcp, ifunc.iport, "src")
         match_tcp_dst = gen_match (ifunc.portb, tcp, ifunc.iport, "dst")
@@ -275,7 +275,7 @@ class Inject (app_manager.RyuApp) :
         self.send_flowmod (datapath, PRIO_INJECT_FLOW, match_tcp_src, act)
         self.send_flowmod (datapath, PRIO_INJECT_FLOW, match_tcp_dst, act)
         self.send_flowmod (datapath, PRIO_INJECT_FLOW, match_udp_src, act)
-        self.send_flowmod (datapath, PRIO_INJECT_FLOW, match_udp_src, act)
+        self.send_flowmod (datapath, PRIO_INJECT_FLOW, match_udp_dst, act)
 
         return
 
