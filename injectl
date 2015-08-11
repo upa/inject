@@ -11,11 +11,11 @@ INJECT_URL = "http://localhost:8080"
 def usage () :
     print
     print "usage : injectl"
-    print "    list               : display function list and its status."
-    print "    attach  [function] : attach function."
-    print "    dettach [function] : detach function."
-    print "    install            : install all current flow entries."
-    print "    remove             : remove all flow entries."
+    print "    list              : display function list and its status."
+    print "    attach [function] : attach function."
+    print "    detach [function] : detach function."
+    print "    install           : install all current flow entries."
+    print "    remove            : remove all flow entries."
     print
     
     return
