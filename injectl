@@ -1,0 +1,139 @@
+#!/usr/bin/env python
+
+import sys
+import json
+import requests
+
+
+INJECT_URL = "http://localhost:8080"
+
+
+def usage () :
+    print
+    print "usage : injectl"
+    print "    list               : display function list and its status."
+    print "    attach  [function] : attach function."
+    print "    dettach [function] : detach function."
+    print "    install            : install all current flow entries."
+    print "    remove             : remove all flow entries."
+    print
+    
+    return
+
+
+def injectl (args) :
+
+    if len (args) < 1 :
+        print "invalid arguments"
+        sys.exit (-1)
+
+    elif args[0] == "list" :
+        injectl_list ()
+
+    elif args[0] == "attach" :
+        if len (args) < 2 :
+            print "function name is not specified."
+            return
+        injectl_attach (args[1])
+
+    elif args[0] == "detach" :
+        if len (args) < 2 :
+            print "function name is not specified."
+            return
+        injectl_detach (args[1])
+
+    elif args[0] == "install" :
+        injectl_install ()
+
+    elif args[0] == "remove" :
+        injectl_remove ()
+
+    else :
+        print "invalid arguments [%s]" % ' '.join (args)
+        sys.exit (-1)
+
+    return
+
+
+def injectl_list () :
+    req_url = INJECT_URL + "/list"
+    r = requests.get (req_url)
+    jsondict = json.loads (r.text)
+    
+    for ifunc in jsondict :
+        print "%s: %s. port-a %d, port-b %d, inject-port %d." % \
+            (ifunc['name'], 
+             "attached" if ifunc['attached'] else "detached",
+             ifunc['porta'], ifunc['portb'], ifunc['iport'])
+
+    return
+
+
+def injectl_attach (ifunc_name) :
+    req_url = INJECT_URL + "/attach/%s" % ifunc_name
+    r = requests.put (req_url)
+    jsondict = json.loads (r.text)
+
+    if jsondict.has_key ('success') :
+        print "%s: %s" % ("success", jsondict['success'])
+    elif jsondict.has_key ('error') :
+        print "%s: %s" % ("error", jsondict['error'])
+
+    return
+
+    
+def injectl_detach (ifunc_name) :
+    req_url = INJECT_URL + "/detach/%s" % ifunc_name
+    r = requests.put (req_url)
+    jsondict = json.loads (r.text)
+
+    if jsondict.has_key ('success') :
+        print "%s: %s" % ("success", jsondict['success'])
+    elif jsondict.has_key ('error') :
+        print "%s: %s" % ("error", jsondict['error'])
+
+    return
+    
+
+def injectl_install () :
+    req_url = INJECT_URL + "/installall"
+    r = requests.put (req_url)
+    jsondict = json.loads (r.text)
+
+    if jsondict.has_key ('success') :
+        print "%s: %s" % ("success", jsondict['success'])
+    elif jsondict.has_key ('error') :
+        print "%s: %s" % ("error", jsondict['error'])
+
+    return
+
+
+def injectl_remove () :
+    req_url = INJECT_URL + "/removeall"
+    r = requests.put (req_url)
+    jsondict = json.loads (r.text)
+
+    if jsondict.has_key ('success') :
+        print "%s: %s" % ("success", jsondict['success'])
+    elif jsondict.has_key ('error') :
+        print "%s: %s" % ("error", jsondict['error'])
+
+    return
+
+
+
+
+if __name__ == '__main__' :
+
+    if len (sys.argv) < 2 :
+        usage ()
+        sys.exit (0)
+
+    if sys.argv[1] == "help" or sys.argv[1] == '-h' :
+        usage ()
+        sys.exit (0)
+
+
+    sys.argv.pop (0)
+    injectl (sys.argv)
+        

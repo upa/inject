@@ -33,10 +33,6 @@ from ryu.app.wsgi import (
     port-X of openflow switch.
 """
 
-logging.basicConfig (level = logging.DEBUG,
-                     format = "%(asctime)s:inject:%(funcName)s")
-
-
 PRIO_DEFAULT_FLOW = 0x0001
 PRIO_PASS_FLOW    = 0x0010
 PRIO_INJECT_FLOW  = 0x0100
@@ -96,7 +92,11 @@ class Inject (app_manager.RyuApp) :
         }
 
     def __init__ (self, *args, **kwargs) :
+
         super (Inject, self).__init__ (*args, **kwargs)
+
+        logging.basicConfig (level = logging.DEBUG,
+                             format = "%(asctime)s:inject:%(funcName)s")
 
         self.wsgi = kwargs['wsgi']
 
@@ -168,6 +168,11 @@ class Inject (app_manager.RyuApp) :
                         controller = RestApi,
                         action = 'remove_all_flows',
                         conditions = dict (method = ['PUT']))
+
+        mapper.connect ('list_ifuncs', '/list',
+                        controller = RestApi,
+                        action = 'list_ifuncs',
+                        conditions = dict (method = ['GET']))
 
         return
 
@@ -335,7 +340,6 @@ class Inject (app_manager.RyuApp) :
 
 
     def remove_flows (self, datapath) :
-        logging.info ("remove all flows.")
 
         ofproto = datapath.ofproto
         parser = datapath.ofproto_parser
@@ -492,3 +496,20 @@ class RestApi (ControllerBase) :
                          body = json.dumps (jsondict, indent = 4))
         
 
+    def list_ifuncs (self, req, ** _kwargs) :
+
+        logging.info ("list ifuncs.")
+
+        ifuncs = []
+
+        for ifunc in self.inject.ifuncs :
+            ifuncjson = { 'name' : ifunc.name,
+                          'porta' : ifunc.porta,
+                          'portb' : ifunc.portb,
+                          'iport' : ifunc.iport,
+                          'attached' : ifunc.attached,
+                          }
+            ifuncs.append (ifuncjson)
+
+        return Response (content_type = "application/json",
+                         body = json.dumps (ifuncs, indent = 4))
